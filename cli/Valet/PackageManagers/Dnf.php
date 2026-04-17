@@ -22,7 +22,17 @@ class Dnf implements PackageManager
      * @var array
      */
     public const PHP_FPM_PATTERN_BY_VERSION = [
+        '7.0' => 'php-fpm',
+        '7.1' => 'php-fpm',
+        '7.2' => 'php-fpm',
+        '7.3' => 'php-fpm',
+        '7.4' => 'php-fpm',
+        '8.0' => 'php-fpm',
+        '8.1' => 'php-fpm',
+        '8.2' => 'php-fpm',
         '8.3' => 'php-fpm',
+        '8.4' => 'php-fpm',
+        '8.5' => 'php-fpm',
     ];
 
     private const PACKAGES = [
@@ -30,6 +40,14 @@ class Dnf implements PackageManager
         'mysql' => 'mysql-server',
         'mariadb' => 'mariadb-server',
     ];
+
+    /**
+     * Cache of resolved php package prefixes, keyed by version.
+     * Values: 'remi-scl' (php84-php-*), 'native' (php-*), or null if undetermined.
+     *
+     * @var array<string, string|null>
+     */
+    private array $phpConventionCache = [];
 
     /**
      * Create a new Apt instance.
@@ -105,10 +123,13 @@ class Dnf implements PackageManager
      */
     public function getPhpFpmName(string $version): string
     {
-        $pattern = !empty(self::PHP_FPM_PATTERN_BY_VERSION[$version])
-            ? self::PHP_FPM_PATTERN_BY_VERSION[$version] : 'php{VERSION}-fpm';
+        if (!empty(self::PHP_FPM_PATTERN_BY_VERSION[$version])) {
+            return self::PHP_FPM_PATTERN_BY_VERSION[$version];
+        }
 
-        return str_replace('{VERSION}', $version, $pattern);
+        return $this->resolvePhpConvention($version) === 'remi-scl'
+            ? 'php' . str_replace('.', '', $version) . '-php-fpm'
+            : 'php-fpm';
     }
 
     /**
@@ -124,8 +145,39 @@ class Dnf implements PackageManager
      */
     public function getPhpExtensionPrefix(string $version): string
     {
-        $pattern = 'php{VERSION}-';
-        return str_replace('{VERSION}', $version, $pattern);
+        return $this->resolvePhpConvention($version) === 'remi-scl'
+            ? 'php' . str_replace('.', '', $version) . '-php-'
+            : 'php-';
+    }
+
+    /**
+     * Probe dnf to determine which PHP packaging convention is available
+     * for the requested version: Remi SCL-style (phpNN-php-*) or native/modular (php-*).
+     */
+    private function resolvePhpConvention(string $version): string
+    {
+        if (array_key_exists($version, $this->phpConventionCache) && $this->phpConventionCache[$version] !== null) {
+            return $this->phpConventionCache[$version];
+        }
+
+        $scl = 'php' . str_replace('.', '', $version) . '-php-fpm';
+
+        if ($this->dnfKnowsPackage($scl)) {
+            return $this->phpConventionCache[$version] = 'remi-scl';
+        }
+
+        return $this->phpConventionCache[$version] = 'native';
+    }
+
+    /**
+     * Ask dnf whether a package exists in any enabled repo.
+     */
+    private function dnfKnowsPackage(string $package): bool
+    {
+        $escaped = escapeshellarg($package);
+        $output = $this->cli->run("dnf info {$escaped} >/dev/null 2>&1 && echo ok || echo no");
+
+        return trim($output) === 'ok';
     }
 
     /**
