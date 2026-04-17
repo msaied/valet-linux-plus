@@ -1,5 +1,11 @@
 <p align="center"><img width="500" src="art/logo.png"></p>
 
+<p align="center">
+<a href="https://packagist.org/packages/msaied/valet-linux-plus"><img src="https://poser.pugx.org/msaied/valet-linux-plus/downloads.svg" alt="Total Downloads"></a>
+<a href="https://packagist.org/packages/msaied/valet-linux-plus"><img src="https://poser.pugx.org/msaied/valet-linux-plus/v/stable.svg" alt="Latest Stable Version"></a>
+<a href="https://packagist.org/packages/msaied/valet-linux-plus"><img src="https://poser.pugx.org/msaied/valet-linux-plus/license.svg" alt="License"></a>
+</p>
+
 ## Introduction
 
 Valet *Linux+* is an advanced development environment for Linux minimalists. No Vagrant, no `/etc/hosts` file. You can even share your sites publicly using local tunnels. _Yeah, we like it too._
