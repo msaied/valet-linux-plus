@@ -102,6 +102,12 @@ class MysqlTest extends TestCase
             ->andReturn($packageServerName);
 
         $this->packageManager
+            ->shouldReceive('getPhpExtensionPrefix')
+            ->with('8.2')
+            ->once()
+            ->andReturn('php8.2-');
+
+        $this->packageManager
             ->shouldReceive('ensureInstalled')
             ->with('php8.2-mysql')
             ->once();
