@@ -23,7 +23,19 @@ class MysqlTest extends TestCase
     private CommandLine|MockObject $commandLine;
     private Filesystem|MockObject $filesystem;
     private Configuration|MockObject $config;
-    private Mysql $mysql;
+
+    /**
+     * Package names probed by Mysql::detectInstalledPackage() in order.
+     * Mirrors the candidate list produced from PackageManager::packageName('mysql'/'mariadb')
+     * merged with MYSQL_PACKAGE_CANDIDATES and MARIADB_PACKAGE_CANDIDATES.
+     */
+    private const PROBED_PACKAGES = [
+        'mysql-server',
+        'mysql-community-server',
+        'mysql',
+        'mariadb-server',
+        'mariadb',
+    ];
 
     public function setUp(): void
     {
@@ -34,32 +46,28 @@ class MysqlTest extends TestCase
         $this->commandLine = Mockery::mock(CommandLine::class);
         $this->filesystem = Mockery::mock(Filesystem::class);
         $this->config = Mockery::mock(Configuration::class);
+    }
 
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with('mysql')
-            ->once()
-            ->andReturn('mysql-server');
+    /**
+     * Configure the package manager mock so that the given package (if any) reports
+     * as installed while all other candidates return false.
+     */
+    private function mockDetection(?string $installedPackage): void
+    {
+        $this->packageManager->shouldReceive('packageName')->with('mysql')->andReturn('mysql-server');
+        $this->packageManager->shouldReceive('packageName')->with('mariadb')->andReturn('mariadb-server');
 
-        $this->packageManager
-            ->shouldReceive('installed')
-            ->with('mysql-server')
-            ->once()
-            ->andReturnFalse();
+        foreach (self::PROBED_PACKAGES as $candidate) {
+            $this->packageManager
+                ->shouldReceive('installed')
+                ->with($candidate)
+                ->andReturn($candidate === $installedPackage);
+        }
+    }
 
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with('mariadb')
-            ->once()
-            ->andReturn('mariadb-server');
-
-        $this->packageManager
-            ->shouldReceive('installed')
-            ->with('mariadb-server')
-            ->once()
-            ->andReturnFalse();
-
-        $this->mysql = new Mysql(
+    private function buildMysql(): Mysql
+    {
+        return new Mysql(
             $this->packageManager,
             $this->serviceManager,
             $this->commandLine,
@@ -91,15 +99,10 @@ class MysqlTest extends TestCase
     public function itWillInstallSuccessfully(bool $useMariaDB, string $packageName, string $packageServerName): void
     {
         Writer::fake();
+        $this->mockDetection(null);
         $phpFpm = Mockery::mock(PhpFpm::class);
         swap(PhpFpm::class, $phpFpm);
         $phpFpm->shouldReceive('getCurrentVersion')->once()->andReturn('8.2');
-
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with($packageName)
-            ->once()
-            ->andReturn($packageServerName);
 
         $this->packageManager
             ->shouldReceive('getPhpExtensionPrefix')
@@ -113,22 +116,10 @@ class MysqlTest extends TestCase
             ->once();
 
         $this->packageManager
-            ->shouldReceive('installed')
-            ->with($packageServerName)
-            ->once()
-            ->andReturnFalse();
-
-        $this->packageManager
             ->shouldReceive('installOrFail')
             ->with($packageServerName)
             ->once()
             ->andReturnFalse();
-
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with('mariadb')
-            ->twice()
-            ->andReturn('mariadb-server');
 
         $this->serviceManager
             ->shouldReceive('enable')
@@ -153,39 +144,15 @@ class MysqlTest extends TestCase
             ->once()
             ->andReturn([]);
 
-        $this->mysql->install($useMariaDB);
+        $this->buildMysql()->install($useMariaDB);
     }
 
     /**
      * @test
      */
-    public function itWillNotOverrideWhenInstalled()
+    public function itWillNotOverrideWhenInstalled(): void
     {
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with('mysql')
-            ->once()
-            ->andReturn('mysql-server');
-
-        $this->packageManager
-            ->shouldReceive('installed')
-            ->with('mysql-server')
-            ->once()
-            ->andReturnTrue();
-
-        $mysql = new Mysql(
-            $this->packageManager,
-            $this->serviceManager,
-            $this->commandLine,
-            $this->filesystem,
-            $this->config
-        );
-
-        $this->packageManager
-            ->shouldReceive('installed')
-            ->with('mysql-server')
-            ->once()
-            ->andReturnTrue();
+        $this->mockDetection('mysql-server');
 
         $this->config
             ->shouldReceive('get')
@@ -193,58 +160,18 @@ class MysqlTest extends TestCase
             ->once()
             ->andReturn(['user' => 'valet', 'password' => 'valet-password']);
 
-        $this->packageManager
-            ->shouldNotReceive('installOrFail')
-            ->with('mysql-server');
-        $this->serviceManager
-            ->shouldNotReceive('enable')
-            ->with('mysql');
+        $this->packageManager->shouldNotReceive('installOrFail')->with('mysql-server');
+        $this->serviceManager->shouldNotReceive('enable')->with('mysql');
 
-        $mysql->install();
+        $this->buildMysql()->install();
     }
 
     /**
      * @test
      */
-    public function itWillNotOverrideWhenMariaDbInstalled()
+    public function itWillNotOverrideWhenMariaDbInstalled(): void
     {
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with('mysql')
-            ->once()
-            ->andReturn('mysql-server');
-
-        $this->packageManager
-            ->shouldReceive('installed')
-            ->with('mysql-server')
-            ->once()
-            ->andReturnFalse();
-
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with('mariadb')
-            ->once()
-            ->andReturn('mariadb-server');
-
-        $this->packageManager
-            ->shouldReceive('installed')
-            ->with('mariadb-server')
-            ->once()
-            ->andReturnTrue();
-
-        $mysql = new Mysql(
-            $this->packageManager,
-            $this->serviceManager,
-            $this->commandLine,
-            $this->filesystem,
-            $this->config
-        );
-
-        $this->packageManager
-            ->shouldReceive('installed')
-            ->with('mariadb-server')
-            ->once()
-            ->andReturnTrue();
+        $this->mockDetection('mariadb-server');
 
         $this->config
             ->shouldReceive('get')
@@ -252,14 +179,28 @@ class MysqlTest extends TestCase
             ->once()
             ->andReturn(['user' => 'valet', 'password' => 'valet-password']);
 
-        $this->packageManager
-            ->shouldNotReceive('installOrFail')
-            ->with('mariadb-server');
-        $this->serviceManager
-            ->shouldNotReceive('enable')
-            ->with('mariadb');
+        $this->packageManager->shouldNotReceive('installOrFail')->with('mariadb-server');
+        $this->serviceManager->shouldNotReceive('enable')->with('mariadb');
 
-        $mysql->install(true);
+        $this->buildMysql()->install();
+    }
+
+    /**
+     * @test
+     */
+    public function itDetectsMysqlCommunityServer(): void
+    {
+        $this->mockDetection('mysql-community-server');
+
+        $this->config
+            ->shouldReceive('get')
+            ->with('mysql', [])
+            ->once()
+            ->andReturn(['user' => 'valet', 'password' => 'valet-password']);
+
+        $this->packageManager->shouldNotReceive('installOrFail');
+
+        $this->buildMysql()->install();
     }
 
     /**
@@ -267,31 +208,7 @@ class MysqlTest extends TestCase
      */
     public function itWillStopService(): void
     {
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with('mysql')
-            ->once()
-            ->andReturn('mysql-server');
-
-        $this->packageManager
-            ->shouldReceive('installed')
-            ->with('mysql-server')
-            ->once()
-            ->andReturnTrue();
-
-        $mysql = new Mysql(
-            $this->packageManager,
-            $this->serviceManager,
-            $this->commandLine,
-            $this->filesystem,
-            $this->config
-        );
-
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with('mariadb')
-            ->once()
-            ->andReturn('mariadb-server');
+        $this->mockDetection('mysql-server');
 
         $this->serviceManager
             ->shouldReceive('stop')
@@ -299,7 +216,7 @@ class MysqlTest extends TestCase
             ->once()
             ->andReturnTrue();
 
-        $mysql->stop();
+        $this->buildMysql()->stop();
     }
 
     /**
@@ -307,31 +224,7 @@ class MysqlTest extends TestCase
      */
     public function itWillRestartService(): void
     {
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with('mysql')
-            ->once()
-            ->andReturn('mysql-server');
-
-        $this->packageManager
-            ->shouldReceive('installed')
-            ->with('mysql-server')
-            ->once()
-            ->andReturnTrue();
-
-        $mysql = new Mysql(
-            $this->packageManager,
-            $this->serviceManager,
-            $this->commandLine,
-            $this->filesystem,
-            $this->config
-        );
-
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with('mariadb')
-            ->once()
-            ->andReturn('mariadb-server');
+        $this->mockDetection('mysql-server');
 
         $this->serviceManager
             ->shouldReceive('restart')
@@ -339,7 +232,7 @@ class MysqlTest extends TestCase
             ->once()
             ->andReturnTrue();
 
-        $mysql->restart();
+        $this->buildMysql()->restart();
     }
 
     /**
@@ -347,31 +240,7 @@ class MysqlTest extends TestCase
      */
     public function itWillUninstallService(): void
     {
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with('mysql')
-            ->once()
-            ->andReturn('mysql-server');
-
-        $this->packageManager
-            ->shouldReceive('installed')
-            ->with('mysql-server')
-            ->once()
-            ->andReturnTrue();
-
-        $mysql = new Mysql(
-            $this->packageManager,
-            $this->serviceManager,
-            $this->commandLine,
-            $this->filesystem,
-            $this->config
-        );
-
-        $this->packageManager
-            ->shouldReceive('packageName')
-            ->with('mariadb')
-            ->once()
-            ->andReturn('mariadb-server');
+        $this->mockDetection('mysql-server');
 
         $this->serviceManager
             ->shouldReceive('stop')
@@ -379,6 +248,6 @@ class MysqlTest extends TestCase
             ->once()
             ->andReturnTrue();
 
-        $mysql->uninstall();
+        $this->buildMysql()->uninstall();
     }
 }

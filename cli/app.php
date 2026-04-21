@@ -62,7 +62,7 @@ $app->command('install [--ignore-selinux] [--mariadb]', function ($ignoreSELinux
     Mailpit::install();
     ValetRedis::install();
     Nginx::restart();
-    Mysql::install($mariadb);
+    Mysql::install($mariadb ?: null);
     Ngrok::install();
     Valet::symlinkToUsersBin();
 

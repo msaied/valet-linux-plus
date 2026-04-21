@@ -7,12 +7,13 @@ use PDO;
 use Valet\Contracts\PackageManager;
 use Valet\Contracts\ServiceManager;
 use Valet\Facades\PhpFpm as PhpFpmFacade;
-use Valet\PackageManagers\Dnf;
 use Valet\PackageManagers\Pacman;
 
 class Mysql
 {
     private const DATABASE_USER = 'valet';
+    private const MYSQL_PACKAGE_CANDIDATES = ['mysql-server', 'mysql-community-server', 'mysql'];
+    private const MARIADB_PACKAGE_CANDIDATES = ['mariadb-server', 'mariadb'];
     public CommandLine $cli;
     public Filesystem $files;
     public PackageManager $pm;
@@ -41,21 +42,20 @@ class Mysql
         $this->files = $files;
         $this->configuration = $configuration;
 
-        if ($this->pm->installed($packageName = $this->pm->packageName('mysql'))) {
-            $this->currentPackage = $packageName;
-        } elseif ($this->pm->installed($packageName = $this->pm->packageName('mariadb'))) {
-            $this->currentPackage = $packageName;
-        }
+        $this->currentPackage = $this->detectInstalledPackage();
     }
 
     /**
      * Install the service.
      */
-    public function install(bool $useMariaDB = false): void
+    public function install(?bool $useMariaDB = null): void
     {
         if ($this->currentPackage === null) {
-            if ($this->pm instanceof Pacman || $this->pm instanceof Dnf) {
-                $useMariaDB = true;
+            if ($useMariaDB === null) {
+                $useMariaDB = Writer::confirm(
+                    'Neither MySQL nor MariaDB is installed. Install MariaDB? (No = install MySQL)',
+                    false
+                );
             }
             $package = $useMariaDB ? $this->pm->packageName('mariadb') : $this->pm->packageName('mysql');
             $this->currentPackage = $package;
@@ -397,7 +397,31 @@ class Mysql
 
     private function isMariaDB(): bool
     {
-        return $this->currentPackage === $this->pm->packageName('mariadb');
+        if ($this->currentPackage === null) {
+            return false;
+        }
+        return in_array($this->currentPackage, self::MARIADB_PACKAGE_CANDIDATES, true);
+    }
+
+    /**
+     * Scan known MySQL and MariaDB package names and return the first one installed.
+     */
+    private function detectInstalledPackage(): ?string
+    {
+        $candidates = array_unique(array_merge(
+            [$this->pm->packageName('mysql')],
+            self::MYSQL_PACKAGE_CANDIDATES,
+            [$this->pm->packageName('mariadb')],
+            self::MARIADB_PACKAGE_CANDIDATES
+        ));
+
+        foreach ($candidates as $package) {
+            if ($this->pm->installed($package)) {
+                return $package;
+            }
+        }
+
+        return null;
     }
 
     /**
