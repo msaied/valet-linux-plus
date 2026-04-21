@@ -173,18 +173,35 @@ class Systemd implements ServiceManager
     }
 
     /**
-     * Determine real service name.
+     * Known systemd unit aliases keyed by the logical service name valet asks for.
+     * Extend this when a distro ships the same service under a different unit name.
+     *
+     * @var array<string, string[]>
+     */
+    private const SERVICE_ALIASES = [
+        'mysql' => ['mysql', 'mysqld'],
+        'mariadb' => ['mariadb', 'mysql', 'mysqld'],
+        'mysqld' => ['mysqld', 'mysql'],
+    ];
+
+    /**
+     * Determine real service name by probing known aliases. Returns the first
+     * unit reported as `Loaded: loaded`. Throws if none resolve so callers like
+     * enable()/disable() can treat it as "service unavailable".
+     *
      * @throws DomainException
      */
     private function getRealService(string $service): string
     {
-        return collect($service)->first(
-            function ($service) {
-                return strpos($this->cli->run("systemctl status $service | grep Loaded"), 'Loaded: loaded');
-            },
-            function () {
-                throw new DomainException('Unable to determine service name.');
+        $candidates = self::SERVICE_ALIASES[$service] ?? [$service];
+
+        foreach ($candidates as $candidate) {
+            $output = $this->cli->run("systemctl status $candidate | grep Loaded");
+            if (str_contains($output, 'Loaded: loaded')) {
+                return $candidate;
             }
-        );
+        }
+
+        throw new DomainException('Unable to determine service name.');
     }
 }
